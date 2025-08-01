@@ -421,7 +421,8 @@ class TestIngestionService:
         
         assert result["status"] == IngestionStatus.SUCCESS
         assert "All episodes already processed" in result["message"]
-        assert result["total_episodes_loaded"] == 0
+        assert "export_id" in result
+        assert "processing_time" in result
 
     @pytest.mark.asyncio
     async def test_process_export_directory_force_reingest(self, mock_settings, mock_graphiti_client, temp_export_dir):

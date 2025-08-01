@@ -19,6 +19,9 @@ class TestSettings:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         monkeypatch.setenv("NEO4J_PASSWORD", "test-password")
         
+        # Clear test environment variables to test actual defaults
+        monkeypatch.delenv("GRAPHITI_GROUP_ID", raising=False)
+        
         settings = Settings.from_env()
         
         assert settings.openai_api_key == "test-key"

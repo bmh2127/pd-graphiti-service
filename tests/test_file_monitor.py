@@ -386,9 +386,16 @@ class TestFileMonitor:
         mock_observer = Mock()
         monitor._observer = mock_observer
         
-        # Add mock processor tasks
-        mock_task1 = AsyncMock()
-        mock_task2 = AsyncMock()
+        # Create proper mock tasks that can be cancelled and gathered
+        async def dummy_task():
+            try:
+                while True:
+                    await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                pass
+        
+        mock_task1 = asyncio.create_task(dummy_task())
+        mock_task2 = asyncio.create_task(dummy_task())
         monitor._processor_tasks = [mock_task1, mock_task2]
         
         result = await monitor.stop_monitoring()
@@ -403,8 +410,8 @@ class TestFileMonitor:
         mock_observer.join.assert_called_once()
         
         # Verify tasks were cancelled
-        mock_task1.cancel.assert_called_once()
-        mock_task2.cancel.assert_called_once()
+        assert mock_task1.cancelled()
+        assert mock_task2.cancelled()
 
     @pytest.mark.asyncio
     async def test_stop_monitoring_already_stopped(self, mock_settings, mock_ingestion_service):
