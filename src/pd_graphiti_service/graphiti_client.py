@@ -51,8 +51,7 @@ class GraphitiClient:
             self._graphiti = Graphiti(
                 uri=self.settings.neo4j_uri,
                 user=self.settings.neo4j_user,
-                password=self.settings.neo4j_password,
-                driver_config={"database": "neo4j"}
+                password=self.settings.neo4j_password
             )
             logger.info("Created new Graphiti instance")
         return self._graphiti
@@ -213,11 +212,26 @@ class GraphitiClient:
             graphiti = await self._get_graphiti()
             
             # Add episode to knowledge graph
-            result = await graphiti.add_memory(
+            from datetime import datetime
+            from graphiti_core.nodes import EpisodeType
+            
+            # Convert string source to EpisodeType enum
+            if isinstance(episode.source, str):
+                if episode.source == "json":
+                    source_type = EpisodeType.json
+                elif episode.source == "text":
+                    source_type = EpisodeType.text
+                else:
+                    source_type = EpisodeType.message
+            else:
+                source_type = episode.source
+            
+            result = await graphiti.add_episode(
                 name=episode.episode_name,
                 episode_body=episode.episode_body,
-                source=episode.source,
                 source_description=episode.source_description,
+                reference_time=datetime.now(),
+                source=source_type,
                 group_id=episode.group_id or self.settings.graphiti_group_id
             )
             
