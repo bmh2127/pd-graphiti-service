@@ -1,4 +1,5 @@
-"""Ingestion response models."""
+# File: src/pd_graphiti_service/models/responses/ingestion.py
+"""Updated ingestion response models."""
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
@@ -32,6 +33,9 @@ class IngestionResponse(BaseModel):
     start_time: datetime = Field(..., description="When the ingestion started")
     end_time: Optional[datetime] = Field(None, description="When the ingestion completed")
     total_processing_time_seconds: Optional[float] = Field(None, description="Total time for ingestion")
+    
+    # Operation tracking
+    operation_id: Optional[str] = Field(None, description="ID for tracking background operations")
     
     # Detailed results
     episode_results: List[EpisodeIngestionResult] = Field(
