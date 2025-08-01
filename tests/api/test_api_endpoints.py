@@ -242,8 +242,9 @@ class TestErrorHandling:
                 
                 assert response.status_code == 422
                 data = response.json()
-                assert data["error"] == "Validation Error"
                 assert "detail" in data
+                assert len(data["detail"]) > 0
+                assert data["detail"][0]["type"] == "missing"
 
     def test_internal_server_error(self, test_app, mock_services):
         """Test internal server error handling."""
