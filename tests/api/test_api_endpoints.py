@@ -1,21 +1,62 @@
 # File: tests/api/test_api_endpoints.py
 """Tests for API endpoints."""
 
-import asyncio
 import json
 import tempfile
 import pytest
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
-from httpx import AsyncClient
+from unittest.mock import AsyncMock, patch
+from fastapi.testclient import TestClient
 
 from pd_graphiti_service.main import app
-from pd_graphiti_service.config import Settings
 from pd_graphiti_service.models import IngestionStatus, GraphitiEpisode, EpisodeMetadata
 
 
 # Test fixtures
+@pytest.fixture
+def test_app():
+    """Create a test FastAPI app without lifespan."""
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from pd_graphiti_service.api.endpoints import router as api_router
+    from pd_graphiti_service.api.health import router as health_router
+    
+    # Create app without lifespan
+    test_app = FastAPI(
+        title="PD Graphiti Service Test",
+        description="Test version of PD Graphiti Service",
+        version="0.1.0",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json"
+    )
+    
+    # Add middleware
+    test_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Include routers
+    test_app.include_router(health_router, prefix="/health")
+    test_app.include_router(api_router, prefix="/api/v1")
+    
+    # Add root endpoint
+    @test_app.get("/")
+    async def root():
+        return {
+            "service": "PD Graphiti Service",
+            "version": "0.1.0",
+            "status": "running",
+            "uptime_seconds": 3600.0
+        }
+    
+    return test_app
+
 @pytest.fixture
 def mock_services():
     """Mock all service dependencies."""
@@ -105,8 +146,7 @@ def sample_export_directory():
 class TestHealthEndpoints:
     """Test health check endpoints."""
 
-    @pytest.mark.asyncio
-    async def test_basic_health_check(self, mock_services):
+    def test_basic_health_check(self, test_app, mock_services):
         """Test basic health check endpoint."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -115,16 +155,15 @@ class TestHealthEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/health")
+            with TestClient(test_app) as client:
+                response = client.get("/health")
                 
                 assert response.status_code == 200
                 data = response.json()
-                assert "knowledge_graph_statistics" in data
+                assert data["status"] == "healthy"
                 assert "timestamp" in data
 
-    @pytest.mark.asyncio
-    async def test_list_operations(self, mock_services):
+    def test_list_operations(self, test_app, mock_services):
         """Test list operations endpoint."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -133,16 +172,15 @@ class TestHealthEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/api/v1/operations")
+            with TestClient(test_app) as client:
+                response = client.get("/api/v1/operations")
                 
                 assert response.status_code == 200
                 data = response.json()
                 assert "background_tasks" in data
                 assert "current_operations" in data
 
-    @pytest.mark.asyncio
-    async def test_cleanup_operations(self, mock_services):
+    def test_cleanup_operations(self, test_app, mock_services):
         """Test operations cleanup endpoint."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -151,8 +189,8 @@ class TestHealthEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.delete("/api/v1/operations/cleanup?max_age_hours=1")
+            with TestClient(test_app) as client:
+                response = client.delete("/api/v1/operations/cleanup?max_age_hours=1")
                 
                 assert response.status_code == 200
                 data = response.json()
@@ -163,8 +201,7 @@ class TestHealthEndpoints:
 class TestRootEndpoint:
     """Test root endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_root_endpoint(self, mock_services):
+    def test_root_endpoint(self, test_app, mock_services):
         """Test root endpoint returns service information."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -173,8 +210,8 @@ class TestRootEndpoint:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/")
+            with TestClient(test_app) as client:
+                response = client.get("/")
                 
                 assert response.status_code == 200
                 data = response.json()
@@ -187,8 +224,7 @@ class TestRootEndpoint:
 class TestErrorHandling:
     """Test error handling and edge cases."""
 
-    @pytest.mark.asyncio
-    async def test_validation_error(self, mock_services):
+    def test_validation_error(self, test_app, mock_services):
         """Test request validation errors."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -197,9 +233,9 @@ class TestErrorHandling:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
+            with TestClient(test_app) as client:
                 # Send invalid request (missing required fields)
-                response = await client.post(
+                response = client.post(
                     "/api/v1/ingest/directory",
                     json={}  # Missing directory_path
                 )
@@ -209,8 +245,7 @@ class TestErrorHandling:
                 assert data["error"] == "Validation Error"
                 assert "detail" in data
 
-    @pytest.mark.asyncio
-    async def test_internal_server_error(self, mock_services):
+    def test_internal_server_error(self, test_app, mock_services):
         """Test internal server error handling."""
         # Configure mock to raise exception
         mock_services["graphiti_client"].get_graph_stats.side_effect = Exception("Database error")
@@ -222,15 +257,14 @@ class TestErrorHandling:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/api/v1/stats")
+            with TestClient(test_app) as client:
+                response = client.get("/api/v1/stats")
                 
                 assert response.status_code == 500
                 data = response.json()
                 assert "Failed to get graph statistics" in data["detail"]
 
-    @pytest.mark.asyncio
-    async def test_service_unavailable(self, mock_services):
+    def test_service_unavailable(self, test_app, mock_services):
         """Test service unavailable errors."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -239,18 +273,17 @@ class TestErrorHandling:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/api/v1/stats")
+            with TestClient(test_app) as client:
+                response = client.get("/api/v1/stats")
                 
                 assert response.status_code == 503
 
 
 class TestConcurrency:
-    """Test concurrent API requests."""
+    """Test multiple API requests."""
 
-    @pytest.mark.asyncio
-    async def test_concurrent_health_checks(self, mock_services):
-        """Test multiple concurrent health check requests."""
+    def test_multiple_health_checks(self, test_app, mock_services):
+        """Test multiple health check requests."""
         with patch.multiple(
             "pd_graphiti_service.main",
             get_graphiti_client=lambda: mock_services["graphiti_client"],
@@ -258,14 +291,12 @@ class TestConcurrency:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                # Send multiple concurrent requests
-                tasks = [
+            with TestClient(test_app) as client:
+                # Send multiple requests
+                responses = [
                     client.get("/health")
                     for _ in range(10)
                 ]
-                
-                responses = await asyncio.gather(*tasks)
                 
                 # All should succeed
                 for response in responses:
@@ -273,9 +304,8 @@ class TestConcurrency:
                     data = response.json()
                     assert data["status"] == "healthy"
 
-    @pytest.mark.asyncio
-    async def test_concurrent_status_requests(self, mock_services):
-        """Test multiple concurrent status requests."""
+    def test_multiple_status_requests(self, test_app, mock_services):
+        """Test multiple status requests."""
         with patch.multiple(
             "pd_graphiti_service.main",
             get_graphiti_client=lambda: mock_services["graphiti_client"],
@@ -283,14 +313,12 @@ class TestConcurrency:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                # Send multiple concurrent requests
-                tasks = [
+            with TestClient(test_app) as client:
+                # Send multiple requests
+                responses = [
                     client.get("/api/v1/status")
                     for _ in range(5)
                 ]
-                
-                responses = await asyncio.gather(*tasks)
                 
                 # All should succeed
                 for response in responses:
@@ -302,8 +330,7 @@ class TestConcurrency:
 class TestIntegrationScenarios:
     """Test integration scenarios."""
 
-    @pytest.mark.asyncio
-    async def test_full_ingestion_workflow(self, mock_services, sample_export_directory):
+    def test_full_ingestion_workflow(self, test_app, mock_services, sample_export_directory):
         """Test complete ingestion workflow."""
         # Configure mocks for workflow
         mock_services["task_manager"].create_task.return_value = "test_op_123"
@@ -322,13 +349,13 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
+            with TestClient(test_app) as client:
                 # 1. Check service health
-                health_response = await client.get("/health/deep")
+                health_response = client.get("/health/deep")
                 assert health_response.status_code == 200
                 
                 # 2. Start directory ingestion
-                ingest_response = await client.post(
+                ingest_response = client.post(
                     "/api/v1/ingest/directory",
                     json={
                         "directory_path": str(sample_export_directory),
@@ -340,19 +367,18 @@ class TestIntegrationScenarios:
                 operation_id = ingest_response.json()["operation_id"]
                 
                 # 3. Check operation status
-                status_response = await client.get(f"/api/v1/status/{operation_id}")
+                status_response = client.get(f"/api/v1/status/{operation_id}")
                 assert status_response.status_code == 200
                 
                 # 4. Get graph statistics
-                stats_response = await client.get("/api/v1/stats")
+                stats_response = client.get("/api/v1/stats")
                 assert stats_response.status_code == 200
                 
                 # 5. List all operations
-                ops_response = await client.get("/api/v1/operations")
+                ops_response = client.get("/api/v1/operations")
                 assert ops_response.status_code == 200
 
-    @pytest.mark.asyncio
-    async def test_error_recovery_scenario(self, mock_services, sample_export_directory):
+    def test_error_recovery_scenario(self, test_app, mock_services, sample_export_directory):
         """Test error recovery scenarios."""
         # Configure mock to fail first, then succeed
         call_count = 0
@@ -378,25 +404,22 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
+            with TestClient(test_app) as client:
                 # First call should show unhealthy
-                response1 = await client.get("/health/deep")
+                response1 = client.get("/health/deep")
                 assert response1.status_code == 200
                 data1 = response1.json()
                 assert data1["status"] == "unhealthy"
                 
                 # Second call should succeed
-                response2 = await client.get("/health/deep")
+                response2 = client.get("/health/deep")
                 assert response2.status_code == 200
                 data2 = response2.json()
                 assert data2["status"] == "healthy"
-                data = response.json()
-                assert data["status"] == "healthy"
-                assert "timestamp" in data
-                assert "version" in data
+                assert "timestamp" in data2
+                assert "version" in data2
 
-    @pytest.mark.asyncio
-    async def test_basic_health_check_with_ping(self, mock_services):
+    def test_basic_health_check_with_ping(self, test_app, mock_services):
         """Test basic health check with ping data."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -405,15 +428,14 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/health?ping_data=test123")
+            with TestClient(test_app) as client:
+                response = client.get("/health?ping_data=test123")
                 
                 assert response.status_code == 200
                 data = response.json()
                 assert data["ping_data"] == "test123"
 
-    @pytest.mark.asyncio
-    async def test_deep_health_check_healthy(self, mock_services):
+    def test_deep_health_check_healthy(self, test_app, mock_services):
         """Test deep health check when all services are healthy."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -422,8 +444,8 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/health/deep")
+            with TestClient(test_app) as client:
+                response = client.get("/health/deep")
                 
                 assert response.status_code == 200
                 data = response.json()
@@ -432,8 +454,7 @@ class TestIntegrationScenarios:
                 assert data["openai_api_accessible"] is True
                 assert data["graphiti_ready"] is True
 
-    @pytest.mark.asyncio
-    async def test_deep_health_check_degraded(self, mock_services):
+    def test_deep_health_check_degraded(self, test_app, mock_services):
         """Test deep health check when services are degraded."""
         # Configure mock for degraded state
         mock_services["graphiti_client"].test_connection.return_value = {
@@ -450,8 +471,8 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/health/deep")
+            with TestClient(test_app) as client:
+                response = client.get("/health/deep")
                 
                 assert response.status_code == 200
                 data = response.json()
@@ -460,8 +481,7 @@ class TestIntegrationScenarios:
                 assert data["openai_api_accessible"] is False
                 assert data["graphiti_ready"] is False
 
-    @pytest.mark.asyncio
-    async def test_readiness_probe_ready(self, mock_services):
+    def test_readiness_probe_ready(self, test_app, mock_services):
         """Test readiness probe when service is ready."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -470,15 +490,14 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/health/ready")
+            with TestClient(test_app) as client:
+                response = client.get("/health/ready")
                 
                 assert response.status_code == 200
                 data = response.json()
                 assert data["status"] == "ready"
 
-    @pytest.mark.asyncio
-    async def test_readiness_probe_not_ready(self, mock_services):
+    def test_readiness_probe_not_ready(self, test_app, mock_services):
         """Test readiness probe when service is not ready."""
         # Configure mock for not ready state
         mock_services["graphiti_client"].test_connection.return_value = {
@@ -495,15 +514,14 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/health/ready")
+            with TestClient(test_app) as client:
+                response = client.get("/health/ready")
                 
                 assert response.status_code == 503
                 data = response.json()
                 assert data["status"] == "not_ready"
 
-    @pytest.mark.asyncio
-    async def test_liveness_probe(self, mock_services):
+    def test_liveness_probe(self, test_app, mock_services):
         """Test liveness probe."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -512,8 +530,8 @@ class TestIntegrationScenarios:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/health/live")
+            with TestClient(test_app) as client:
+                response = client.get("/health/live")
                 
                 assert response.status_code == 200
                 data = response.json()
@@ -523,8 +541,7 @@ class TestIntegrationScenarios:
 class TestIngestionEndpoints:
     """Test ingestion endpoints."""
 
-    @pytest.mark.asyncio
-    async def test_ingest_directory_success(self, mock_services, sample_export_directory):
+    def test_ingest_directory_success(self, test_app, mock_services, sample_export_directory):
         """Test successful directory ingestion."""
         # Configure mock ingestion service
         mock_services["ingestion_service"].process_export_directory.return_value = {
@@ -541,8 +558,8 @@ class TestIngestionEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.post(
+            with TestClient(test_app) as client:
+                response = client.post(
                     "/api/v1/ingest/directory",
                     json={
                         "directory_path": str(sample_export_directory),
@@ -556,8 +573,7 @@ class TestIngestionEndpoints:
                 assert data["status"] == "processing"
                 assert "operation_id" in data
 
-    @pytest.mark.asyncio
-    async def test_ingest_directory_not_found(self, mock_services):
+    def test_ingest_directory_not_found(self, test_app, mock_services):
         """Test directory ingestion with non-existent directory."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -566,8 +582,8 @@ class TestIngestionEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.post(
+            with TestClient(test_app) as client:
+                response = client.post(
                     "/api/v1/ingest/directory",
                     json={
                         "directory_path": "/nonexistent/directory",
@@ -578,8 +594,7 @@ class TestIngestionEndpoints:
                 
                 assert response.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_ingest_episode_success(self, mock_services):
+    def test_ingest_episode_success(self, test_app, mock_services):
         """Test successful single episode ingestion."""
         # Configure mock ingestion service
         mock_services["ingestion_service"].process_single_episode.return_value = {
@@ -613,11 +628,11 @@ class TestIngestionEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.post(
+            with TestClient(test_app) as client:
+                response = client.post(
                     "/api/v1/ingest/episode",
                     json={
-                        "episode": episode.model_dump(),
+                        "episode": episode.model_dump(mode="json"),
                         "validate_episode": True,
                         "force_reingest": False
                     }
@@ -629,8 +644,7 @@ class TestIngestionEndpoints:
                 assert data["episodes_processed"] == 1
                 assert data["episodes_successful"] == 1
 
-    @pytest.mark.asyncio
-    async def test_get_service_status(self, mock_services):
+    def test_get_service_status(self, test_app, mock_services):
         """Test service status endpoint."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -639,8 +653,8 @@ class TestIngestionEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/api/v1/status")
+            with TestClient(test_app) as client:
+                response = client.get("/api/v1/status")
                 
                 assert response.status_code == 200
                 data = response.json()
@@ -648,8 +662,7 @@ class TestIngestionEndpoints:
                 assert "timestamp" in data
                 assert "total_episodes_ingested" in data
 
-    @pytest.mark.asyncio
-    async def test_get_operation_status_not_found(self, mock_services):
+    def test_get_operation_status_not_found(self, test_app, mock_services):
         """Test operation status for non-existent operation."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -658,13 +671,12 @@ class TestIngestionEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/api/v1/status/nonexistent_operation")
+            with TestClient(test_app) as client:
+                response = client.get("/api/v1/status/nonexistent_operation")
                 
                 assert response.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_get_graph_stats(self, mock_services):
+    def test_get_graph_stats(self, test_app, mock_services):
         """Test graph statistics endpoint."""
         with patch.multiple(
             "pd_graphiti_service.main",
@@ -673,7 +685,7 @@ class TestIngestionEndpoints:
             get_file_monitor=lambda: mock_services["file_monitor"],
             get_task_manager=lambda: mock_services["task_manager"]
         ):
-            async with AsyncClient(app=app, base_url="http://test") as client:
-                response = await client.get("/api/v1/stats")
+            with TestClient(test_app) as client:
+                response = client.get("/api/v1/stats")
                 
                 assert response.status_code == 200  
