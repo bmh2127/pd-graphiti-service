@@ -48,15 +48,77 @@ class GraphitiEpisode(BaseModel):
     }
 
 
+class DagsterExportInfo(BaseModel):
+    """Export metadata from Dagster pipeline."""
+    timestamp: str = Field(..., description="Export timestamp string")
+    directory: str = Field(..., description="Export directory path")
+    dagster_asset: str = Field(..., description="Dagster asset that generated the export")
+    pipeline_version: str = Field(..., description="Pipeline version")
+
+
+class EpisodeSummary(BaseModel):
+    """Summary of episodes in the export."""
+    total_episodes: int = Field(..., description="Total number of episodes")
+    episodes_by_type: Dict[str, int] = Field(..., description="Count of each episode type")
+    genes_included: list[str] = Field(..., description="List of gene symbols included")
+    total_genes: int = Field(..., description="Total number of unique genes")
+
+
+class EpisodeStructure(BaseModel):
+    """Description of episode file structure."""
+    episode_metadata: str = Field(..., description="Description of episode metadata")
+    graphiti_episode: str = Field(..., description="Description of graphiti episode data")
+
+
+class IngestionInstructions(BaseModel):
+    """Instructions for ingesting the episodes."""
+    recommended_order: list[str] = Field(..., description="Recommended processing order")
+    file_format: str = Field(..., description="File format (e.g., 'json')")
+    encoding: str = Field(..., description="File encoding (e.g., 'utf-8')")
+    episode_structure: EpisodeStructure = Field(..., description="Episode file structure description")
+
+
+class ValidationInfo(BaseModel):
+    """Validation information for the export."""
+    total_files: int = Field(..., description="Total number of files")
+    total_errors: int = Field(..., description="Total number of errors")
+    success_rate: float = Field(..., description="Success rate percentage")
+    checksums_available: bool = Field(..., description="Whether checksums are available")
+
+
 class ExportManifest(BaseModel):
-    """Manifest file describing an export directory."""
-    export_id: str = Field(..., description="Unique identifier for this export")
-    export_timestamp: datetime = Field(..., description="When the export was created")
-    dagster_run_id: str = Field(..., description="Dagster run ID that generated this export")
-    total_episodes: int = Field(..., description="Total number of episodes in this export")
-    episode_types: Dict[str, int] = Field(..., description="Count of each episode type")
-    genes: list[str] = Field(..., description="List of gene symbols included in this export")
-    checksum: str = Field(..., description="Overall checksum for the export")
+    """Manifest file describing a Dagster export directory (matches actual Dagster format)."""
+    export_info: DagsterExportInfo = Field(..., description="Export metadata")
+    episode_summary: EpisodeSummary = Field(..., description="Summary of episodes")
+    ingestion_instructions: IngestionInstructions = Field(..., description="Ingestion instructions")
+    validation: ValidationInfo = Field(..., description="Validation information")
+    next_steps: list[str] = Field(..., description="Recommended next steps")
+    
+    # Convenience properties for backward compatibility
+    @property
+    def export_id(self) -> str:
+        """Generate export ID from timestamp and asset."""
+        return f"{self.export_info.dagster_asset}_{self.export_info.timestamp}"
+    
+    @property
+    def export_timestamp(self) -> str:
+        """Get export timestamp."""
+        return self.export_info.timestamp
+    
+    @property
+    def total_episodes(self) -> int:
+        """Get total episodes count."""
+        return self.episode_summary.total_episodes
+    
+    @property
+    def episode_types(self) -> Dict[str, int]:
+        """Get episode types dict."""
+        return self.episode_summary.episodes_by_type
+    
+    @property
+    def genes(self) -> list[str]:
+        """Get genes list."""
+        return self.episode_summary.genes_included
     
     model_config = {
         "json_encoders": {
@@ -70,5 +132,10 @@ __all__ = [
     "IngestionStatus",
     "EpisodeMetadata", 
     "GraphitiEpisode",
-    "ExportManifest"
+    "ExportManifest",
+    "DagsterExportInfo",
+    "EpisodeSummary",
+    "IngestionInstructions",
+    "ValidationInfo",
+    "EpisodeStructure"
 ]

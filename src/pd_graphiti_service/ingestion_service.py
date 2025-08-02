@@ -149,35 +149,55 @@ class IngestionService:
             with open(file_path, 'r') as f:
                 episode_data = json.load(f)
             
-            # Extract episode metadata from file path and content
-            # Assume file structure: episodes/{episode_type}/{gene_symbol}_{episode_type}.json
-            parts = file_path.stem.split('_')
-            if len(parts) >= 2:
-                gene_symbol = parts[0]
-                episode_type = '_'.join(parts[1:])
+            # Handle Dagster export format with episode_metadata and graphiti_episode sections
+            if "episode_metadata" in episode_data and "graphiti_episode" in episode_data:
+                # Use data from episode_metadata section
+                episode_metadata = episode_data["episode_metadata"]
+                graphiti_data = episode_data["graphiti_episode"]
+                
+                gene_symbol = episode_metadata.get("gene_symbol", "unknown")
+                episode_type = episode_metadata.get("episode_type", "unknown")
+                
+                # Parse export timestamp from episode metadata if available
+                export_ts_str = episode_metadata.get("export_timestamp")
+                if export_ts_str:
+                    try:
+                        export_timestamp = datetime.fromisoformat(export_ts_str.replace('Z', '+00:00'))
+                    except ValueError:
+                        export_timestamp = datetime.fromtimestamp(file_path.stat().st_mtime)
+                else:
+                    export_timestamp = datetime.fromtimestamp(file_path.stat().st_mtime)
             else:
-                # Fallback parsing
-                gene_symbol = parts[0] if parts else "unknown"
-                episode_type = file_path.parent.name if file_path.parent.name != "episodes" else "unknown"
+                # Fallback: extract from file path if not in Dagster format
+                parts = file_path.stem.split('_')
+                if len(parts) >= 2:
+                    gene_symbol = parts[0]
+                    episode_type = '_'.join(parts[1:])
+                else:
+                    gene_symbol = parts[0] if parts else "unknown"
+                    episode_type = file_path.parent.name if file_path.parent.name != "episodes" else "unknown"
+                
+                export_timestamp = datetime.fromtimestamp(file_path.stat().st_mtime)
+                graphiti_data = episode_data
             
-            # Create episode metadata
+            # Create episode metadata (using actual file size, not JSON length)
             metadata = EpisodeMetadata(
                 gene_symbol=gene_symbol,
                 episode_type=episode_type,
-                export_timestamp=datetime.fromtimestamp(file_path.stat().st_mtime),
+                export_timestamp=export_timestamp,
                 file_path=file_path,
-                file_size=file_size,
+                file_size=file_size,  # This is correct: file_path.stat().st_size
                 checksum=checksum,
                 validation_status=IngestionStatus.PENDING
             )
             
-            # Create GraphitiEpisode
+            # Create GraphitiEpisode from the graphiti_episode section
             episode = GraphitiEpisode(
-                episode_name=episode_data.get("episode_name", f"{episode_type}_{gene_symbol}"),
-                episode_body=episode_data.get("episode_body", ""),
-                source=episode_data.get("source", "dagster_pipeline"),
-                source_description=episode_data.get("source_description", f"Episode from {file_path.name}"),
-                group_id=episode_data.get("group_id", self.settings.graphiti_group_id),
+                episode_name=graphiti_data.get("name", f"{episode_type}_{gene_symbol}"),
+                episode_body=graphiti_data.get("episode_body", ""),
+                source=graphiti_data.get("source", "dagster_pipeline"),
+                source_description=graphiti_data.get("source_description", f"Episode from {file_path.name}"),
+                group_id=graphiti_data.get("group_id", self.settings.graphiti_group_id),
                 metadata=metadata
             )
             
@@ -323,8 +343,8 @@ class IngestionService:
             result = {
                 "status": ingestion_result.get("status", IngestionStatus.FAILED),
                 "export_id": manifest.export_id,
-                "export_timestamp": manifest.export_timestamp.isoformat(),
-                "dagster_run_id": manifest.dagster_run_id,
+                "export_timestamp": manifest.export_timestamp,  # Already a string in new format
+                "dagster_run_id": getattr(manifest, 'dagster_run_id', 'unknown'),
                 "total_files_discovered": len(episode_files),
                 "total_episodes_loaded": len(episodes),
                 "load_errors": load_errors,
