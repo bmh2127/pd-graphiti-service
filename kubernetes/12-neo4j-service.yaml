@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-service
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: neo4j
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: pd-graphiti-platform
+spec:
+  selector:
+    app.kubernetes.io/name: neo4j
+  ports:
+  - name: http
+    port: 7474
+    targetPort: 7474
+    protocol: TCP
+  - name: bolt
+    port: 7687
+    targetPort: 7687
+    protocol: TCP
+  type: ClusterIP
+
+---
+# Optional: Headless service for StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-headless
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: neo4j
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app.kubernetes.io/name: neo4j
+  ports:
+  - name: http
+    port: 7474
+    targetPort: 7474
+  - name: bolt
+    port: 7687
+    targetPort: 7687
+  clusterIP: None  # Headless service

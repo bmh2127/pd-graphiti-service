@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-graphiti-config
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: pd-graphiti-service
+    app.kubernetes.io/component: config
+data:
+  # Logging Configuration
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  ENABLE_REQUEST_LOGGING: "true"
+  
+  # Monitoring Configuration
+  ENABLE_MONITORING: "true"
+  ENABLE_PROMETHEUS: "true"
+  METRICS_PATH: "/metrics"
+  
+  # Application Configuration
+  GRAPHITI_GROUP_ID: "pd_target_discovery"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  METRICS_PORT: "8001"
+  
+  # Database Configuration
+  NEO4J_URI: "bolt://neo4j-service:7687"
+  NEO4J_USER: "neo4j"
+  
+  # Export Configuration
+  EXPORT_DIRECTORY: "/app/exports"
+  
+  # OpenAI Configuration
+  MODEL_NAME: "gpt-4o-mini"
+  SMALL_MODEL_NAME: "gpt-4o-mini"

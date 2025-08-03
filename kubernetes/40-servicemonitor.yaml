@@ -1,0 +1,186 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pd-graphiti-metrics
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: pd-graphiti-service
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: pd-graphiti-platform
+    # Label for Prometheus operator to discover this ServiceMonitor
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pd-graphiti-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+    scheme: http
+    # Additional metric relabeling (optional)
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'pd_graphiti_.*'
+      targetLabel: service
+      replacement: 'pd-graphiti-service'
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+    scheme: http
+  # Target specific namespace
+  namespaceSelector:
+    matchNames:
+    - pd-graphiti
+
+---
+# PrometheusRule for alerting (requires Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pd-graphiti-alerts
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: pd-graphiti-service
+    app.kubernetes.io/component: alerting
+    app.kubernetes.io/part-of: pd-graphiti-platform
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: pd-graphiti-service
+    interval: 30s
+    rules:
+    
+    # Service availability alerts
+    - alert: PDGraphitiServiceDown
+      expr: up{job="pd-graphiti-service"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: pd-graphiti-service
+      annotations:
+        summary: "PD Graphiti Service is down"
+        description: "PD Graphiti Service has been down for more than 1 minute"
+        runbook_url: "https://your-runbook-url.com/pd-graphiti-down"
+    
+    - alert: PDGraphitiServiceHighErrorRate
+      expr: rate(pd_graphiti_ingestion_failures_total[5m]) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+        service: pd-graphiti-service
+      annotations:
+        summary: "High error rate detected in PD Graphiti Service"
+        description: "Error rate is {{ $value }} per second over the last 5 minutes"
+    
+    # Performance alerts
+    - alert: PDGraphitiHighResponseTime
+      expr: histogram_quantile(0.95, rate(pd_graphiti_ingestion_duration_seconds_bucket[5m])) > 5
+      for: 3m
+      labels:
+        severity: warning
+        service: pd-graphiti-service
+      annotations:
+        summary: "High response time in PD Graphiti Service"
+        description: "95th percentile response time is {{ $value }}s over the last 5 minutes"
+    
+    # Resource alerts
+    - alert: PDGraphitiHighMemoryUsage
+      expr: pd_graphiti_memory_usage_bytes{type="process_rss"} / (1024*1024*1024) > 3
+      for: 5m
+      labels:
+        severity: warning
+        service: pd-graphiti-service
+      annotations:
+        summary: "High memory usage in PD Graphiti Service"
+        description: "Memory usage is {{ $value }}GB, which is above the 3GB threshold"
+    
+    - alert: PDGraphitiHighCPUUsage
+      expr: pd_graphiti_cpu_usage_percent > 90
+      for: 5m
+      labels:
+        severity: warning
+        service: pd-graphiti-service
+      annotations:
+        summary: "High CPU usage in PD Graphiti Service"
+        description: "CPU usage is {{ $value }}%, which is above the 90% threshold"
+    
+    # Database connectivity alerts
+    - alert: PDGraphitiNeo4jConnectionFailed
+      expr: pd_graphiti_health_check_status{service="neo4j"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: pd-graphiti-service
+        component: neo4j
+      annotations:
+        summary: "Neo4j connection failed in PD Graphiti Service"
+        description: "Cannot connect to Neo4j database"
+    
+    # Knowledge graph growth monitoring
+    - alert: PDGraphitiNoDataIngestion
+      expr: increase(pd_graphiti_episodes_processed_total[1h]) == 0
+      for: 2h
+      labels:
+        severity: warning
+        service: pd-graphiti-service
+      annotations:
+        summary: "No data ingestion detected"
+        description: "No episodes have been processed in the last 2 hours"
+
+---
+# Grafana Dashboard ConfigMap (optional)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-graphiti-dashboard
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: pd-graphiti-service
+    app.kubernetes.io/component: monitoring
+    grafana_dashboard: "1"  # Label for Grafana operator to discover
+data:
+  pd-graphiti-dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "PD Graphiti Service Dashboard",
+        "tags": ["pd-graphiti", "knowledge-graph"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "Request Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(pd_graphiti_ingestion_requests_total[1m])",
+                "legendFormat": "{{status}} {{source_type}}"
+              }
+            ]
+          },
+          {
+            "title": "Response Time",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(pd_graphiti_ingestion_duration_seconds_bucket[5m]))",
+                "legendFormat": "95th percentile"
+              }
+            ]
+          },
+          {
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "pd_graphiti_memory_usage_bytes{type=\"process_rss\"} / (1024*1024*1024)",
+                "legendFormat": "Memory Usage (GB)"
+              }
+            ]
+          }
+        ]
+      }
+    }

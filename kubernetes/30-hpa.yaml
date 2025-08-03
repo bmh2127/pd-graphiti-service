@@ -1,0 +1,102 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pd-graphiti-hpa
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: pd-graphiti-service
+    app.kubernetes.io/component: autoscaler
+    app.kubernetes.io/part-of: pd-graphiti-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pd-graphiti-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  # CPU-based scaling
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # Memory-based scaling
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metrics scaling (requires custom metrics API)
+  # - type: Pods
+  #   pods:
+  #     metric:
+  #       name: http_requests_per_second
+  #     target:
+  #       type: AverageValue
+  #       averageValue: "100"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 5 minutes
+      policies:
+      - type: Percent
+        value: 50  # Scale down by max 50% of current replicas
+        periodSeconds: 60
+      - type: Pods
+        value: 2  # Scale down by max 2 pods
+        periodSeconds: 60
+      selectPolicy: Min  # Use the policy that scales down the least
+    scaleUp:
+      stabilizationWindowSeconds: 60  # 1 minute
+      policies:
+      - type: Percent
+        value: 100  # Scale up by max 100% of current replicas
+        periodSeconds: 60
+      - type: Pods
+        value: 4  # Scale up by max 4 pods
+        periodSeconds: 60
+      selectPolicy: Max  # Use the policy that scales up the most
+
+---
+# Pod Disruption Budget to ensure availability during scaling/updates
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pd-graphiti-pdb
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: pd-graphiti-service
+    app.kubernetes.io/component: availability
+    app.kubernetes.io/part-of: pd-graphiti-platform
+spec:
+  minAvailable: 1  # Always keep at least 1 pod running
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pd-graphiti-service
+
+---
+# Vertical Pod Autoscaler (optional, requires VPA to be installed)
+# apiVersion: autoscaling.k8s.io/v1
+# kind: VerticalPodAutoscaler
+# metadata:
+#   name: pd-graphiti-vpa
+#   namespace: pd-graphiti
+# spec:
+#   targetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: pd-graphiti-service
+#   updatePolicy:
+#     updateMode: "Auto"  # "Off", "Initial", "Recreation", or "Auto"
+#   resourcePolicy:
+#     containerPolicies:
+#     - containerName: pd-graphiti-service
+#       minAllowed:
+#         cpu: 100m
+#         memory: 512Mi
+#       maxAllowed:
+#         cpu: 2
+#         memory: 8Gi
+#       controlledResources: ["cpu", "memory"]

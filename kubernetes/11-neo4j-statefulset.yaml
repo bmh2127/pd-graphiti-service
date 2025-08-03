@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j
+  namespace: pd-graphiti
+  labels:
+    app.kubernetes.io/name: neo4j
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: pd-graphiti-platform
+spec:
+  serviceName: neo4j-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neo4j
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neo4j
+        app.kubernetes.io/component: database
+    spec:
+      securityContext:
+        runAsUser: 7474
+        runAsGroup: 7474
+        fsGroup: 7474
+        runAsNonRoot: true
+      containers:
+      - name: neo4j
+        image: neo4j:5.26.2
+        ports:
+        - containerPort: 7474
+          name: http
+          protocol: TCP
+        - containerPort: 7687
+          name: bolt
+          protocol: TCP
+        env:
+        - name: NEO4J_AUTH
+          valueFrom:
+            secretKeyRef:
+              name: pd-graphiti-secrets
+              key: NEO4J_PASSWORD
+              optional: false
+        - name: NEO4J_dbms_default_database
+          value: "neo4j"
+        - name: NEO4J_dbms_memory_heap_initial_size
+          value: "1G"
+        - name: NEO4J_dbms_memory_heap_max_size
+          value: "4G"
+        - name: NEO4J_dbms_memory_pagecache_size
+          value: "2G"
+        - name: NEO4J_dbms_security_procedures_unrestricted
+          value: "gds.*,apoc.*"
+        - name: NEO4J_dbms_security_procedures_allowlist
+          value: "gds.*,apoc.*"
+        - name: NEO4J_dbms_connector_bolt_listen_address
+          value: "0.0.0.0:7687"
+        - name: NEO4J_dbms_connector_http_listen_address
+          value: "0.0.0.0:7474"
+        - name: NEO4J_dbms_checkpoint_interval_time
+          value: "300s"
+        - name: NEO4J_dbms_checkpoint_interval_tx
+          value: "100000"
+        volumeMounts:
+        - name: neo4j-data
+          mountPath: /data
+        - name: neo4j-logs
+          mountPath: /logs
+        - name: neo4j-backups
+          mountPath: /var/lib/neo4j/backups
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 7474
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 7474
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+            ephemeral-storage: "1Gi"
+          limits:
+            memory: "6Gi"
+            cpu: "2000m"
+            ephemeral-storage: "5Gi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # Neo4j needs write access
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: neo4j-data
+        persistentVolumeClaim:
+          claimName: neo4j-data-pvc
+      - name: neo4j-logs
+        persistentVolumeClaim:
+          claimName: neo4j-logs-pvc
+      - name: neo4j-backups
+        persistentVolumeClaim:
+          claimName: neo4j-backups-pvc

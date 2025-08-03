@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pd-graphiti
+  labels:
+    app.kubernetes.io/name: pd-graphiti-service
+    app.kubernetes.io/part-of: pd-graphiti-platform
+    name: pd-graphiti
