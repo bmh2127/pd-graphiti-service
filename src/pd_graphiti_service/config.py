@@ -32,6 +32,8 @@ class Settings(BaseModel):
     
     # Logging Configuration
     log_level: str = "INFO"
+    log_format: str = "json"  # "json" or "console"
+    enable_request_logging: bool = True
     
     # FastAPI Configuration
     host: str = "0.0.0.0"
@@ -40,6 +42,8 @@ class Settings(BaseModel):
     # Monitoring Configuration
     enable_monitoring: bool = True
     metrics_port: int = 8001
+    enable_prometheus: bool = True
+    metrics_path: str = "/metrics"
 
     @field_validator("export_directory", mode="before")
     @classmethod

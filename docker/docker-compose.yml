@@ -88,11 +88,21 @@ services:
       # Application Configuration
       - GRAPHITI_GROUP_ID=${GRAPHITI_GROUP_ID:-pd_target_discovery}
       - EXPORT_DIRECTORY=/app/exports
+      
+      # Logging Configuration
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - ENABLE_REQUEST_LOGGING=${ENABLE_REQUEST_LOGGING:-true}
+      
+      # Monitoring Configuration
+      - ENABLE_MONITORING=${ENABLE_MONITORING:-true}
+      - ENABLE_PROMETHEUS=${ENABLE_PROMETHEUS:-true}
+      - METRICS_PATH=${METRICS_PATH:-/metrics}
+      
+      # Service Configuration
       - HOST=0.0.0.0
       - PORT=8000
       - METRICS_PORT=8001
-      - ENABLE_MONITORING=${ENABLE_MONITORING:-true}
       
       # OpenAI Configuration
       - MODEL_NAME=${MODEL_NAME:-gpt-4o-mini}
