@@ -8,6 +8,7 @@ from datetime import datetime
 
 import openai
 from graphiti_core import Graphiti
+from graphiti_core.llm_client import LLMConfig, OpenAIClient
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .config import Settings
@@ -46,14 +47,23 @@ class GraphitiClient:
         logger.info(f"GraphitiClient initialized with group_id: {settings.graphiti_group_id}")
 
     async def _get_graphiti(self) -> Graphiti:
-        """Get or create Graphiti instance."""
+        """Get or create Graphiti instance with configured LLM models."""
         if self._graphiti is None:
+            # Configure LLM client with specified models
+            llm_config = LLMConfig(
+                model=self.settings.openai_model,
+                small_model=self.settings.openai_small_model
+            )
+            
+            llm_client = OpenAIClient(config=llm_config)
+            
             self._graphiti = Graphiti(
                 uri=self.settings.neo4j_uri,
                 user=self.settings.neo4j_user,
-                password=self.settings.neo4j_password
+                password=self.settings.neo4j_password,
+                llm_client=llm_client
             )
-            logger.info("Created new Graphiti instance")
+            logger.info(f"Created Graphiti instance with models: {self.settings.openai_model} (main), {self.settings.openai_small_model} (small)")
         return self._graphiti
 
     @retry(
@@ -226,13 +236,20 @@ class GraphitiClient:
             else:
                 source_type = episode.source
             
-            result = await graphiti.add_episode(
-                name=episode.episode_name,
-                episode_body=episode.episode_body,
-                source_description=episode.source_description,
-                reference_time=datetime.now(),
-                source=source_type,
-                group_id=episode.group_id or self.settings.graphiti_group_id
+            # Prepare episode body with concise instructions for complex content
+            processed_body = self._prepare_episode_body(episode.episode_body)
+            
+            # Add episode with extended timeout (300s for complex episodes)
+            result = await asyncio.wait_for(
+                graphiti.add_episode(
+                    name=episode.episode_name,
+                    episode_body=processed_body,
+                    source_description=episode.source_description,
+                    reference_time=datetime.now(),
+                    source=source_type,
+                    group_id=episode.group_id or self.settings.graphiti_group_id
+                ),
+                timeout=300  # 5 minutes for complex episodes (was 180s)
             )
             
             processing_time = time.time() - start_time
@@ -252,6 +269,19 @@ class GraphitiClient:
         except GraphitiValidationError:
             # Re-raise validation errors
             raise
+        
+        except asyncio.TimeoutError:
+            processing_time = time.time() - start_time
+            error_msg = f"Episode {episode.episode_name} processing timeout after {processing_time:.1f}s"
+            logger.error(error_msg)
+            
+            return {
+                "status": IngestionStatus.FAILED,
+                "episode_name": episode.episode_name,
+                "processing_time_seconds": processing_time,
+                "error_message": error_msg,
+                "timestamp": datetime.now().isoformat()
+            }
             
         except Exception as e:
             processing_time = time.time() - start_time
@@ -265,6 +295,34 @@ class GraphitiClient:
                 "error_message": error_msg,
                 "timestamp": datetime.now().isoformat()
             }
+
+    def _prepare_episode_body(self, episode_body: str) -> str:
+        """Prepare episode body with concise instructions for complex content."""
+        import json
+        
+        # For very complex content or known problematic patterns, add concise instructions
+        if (len(episode_body) > 3000 or 
+            episode_body.count('"') > 50):  # Complex JSON or large content
+            
+            if episode_body.startswith("{"):
+                try:
+                    data = json.loads(episode_body)
+                    # Add processing instruction for concise responses
+                    instruction = "IMPORTANT: Generate a concise response under 1000 tokens. Focus on key entities and relationships only."
+                    
+                    if isinstance(data, dict):
+                        data["processing_instruction"] = instruction
+                    else:
+                        data = {"processing_instruction": instruction, "original_data": data}
+                    
+                    return json.dumps(data)
+                except:
+                    # If not valid JSON, just prepend instruction
+                    return f"CONCISE RESPONSE REQUIRED (under 1000 tokens): {episode_body}"
+            else:
+                return f"CONCISE RESPONSE REQUIRED (under 1000 tokens): {episode_body}"
+        
+        return episode_body
 
     async def add_episodes_batch(self, episodes: List[GraphitiEpisode]) -> Dict[str, Any]:
         """Add multiple episodes to the knowledge graph in recommended order.

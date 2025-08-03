@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 from dotenv import load_dotenv
 
 # Load .env file if it exists
@@ -16,6 +16,8 @@ class Settings(BaseModel):
     
     # OpenAI Configuration
     openai_api_key: str
+    openai_model: str = "gpt-4o-mini"
+    openai_small_model: str = "gpt-4o-mini"
     
     # Neo4j Configuration
     neo4j_uri: str = "bolt://localhost:7687"
@@ -69,6 +71,8 @@ class Settings(BaseModel):
         """Load settings from environment variables."""
         return cls(
             openai_api_key=cls._get_env_var("OPENAI_API_KEY"),
+            openai_model=cls._get_env_var("MODEL_NAME", "gpt-4o-mini"),
+            openai_small_model=cls._get_env_var("SMALL_MODEL_NAME", "gpt-4o-mini"),
             neo4j_uri=cls._get_env_var("NEO4J_URI", "bolt://localhost:7687"),
             neo4j_user=cls._get_env_var("NEO4J_USER", "neo4j"),
             neo4j_password=cls._get_env_var("NEO4J_PASSWORD"),
