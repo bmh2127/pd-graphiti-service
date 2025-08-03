@@ -57,7 +57,7 @@ def configure_structured_logging(
     if enable_json:
         # Production JSON logging
         processors.extend([
-            structlog.processors.dict_tracebacks,
+            # structlog.processors.dict_tracebacks,  # Temporarily disabled due to recursion issue
             structlog.processors.JSONRenderer(sort_keys=True)
         ])
     else:

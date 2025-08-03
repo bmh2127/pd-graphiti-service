@@ -60,8 +60,8 @@ class GraphitiClient:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._database_initialized = False
         
-        # Configure OpenAI client
-        openai.api_key = settings.openai_api_key
+        # Initialize OpenAI client with v1.x API
+        self._openai_client = openai.OpenAI(api_key=settings.openai_api_key)
         
         logger.info(f"GraphitiClient initialized with group_id: {settings.graphiti_group_id}")
 
@@ -161,9 +161,8 @@ class GraphitiClient:
         
         # Test OpenAI API accessibility
         try:
-            # Simple test call to OpenAI
-            client = openai.OpenAI(api_key=self.settings.openai_api_key)
-            response = client.chat.completions.create(
+            # Simple test call to OpenAI using the configured client
+            _ = self._openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": "test"}],
                 max_tokens=1
@@ -335,7 +334,7 @@ class GraphitiClient:
                         data = {"processing_instruction": instruction, "original_data": data}
                     
                     return json.dumps(data)
-                except:
+                except (json.JSONDecodeError, TypeError):
                     # If not valid JSON, just prepend instruction
                     return f"CONCISE RESPONSE REQUIRED (under 1000 tokens): {episode_body}"
             else:
