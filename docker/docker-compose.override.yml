@@ -1,0 +1,33 @@
+# Development/Local overrides for docker-compose.yml
+# This file is automatically loaded by Docker Compose for local development
+# It provides developer-friendly defaults and debugging capabilities
+
+version: '3.8'
+
+services:
+  neo4j:
+    # Development-friendly settings
+    environment:
+      - NEO4J_AUTH=neo4j/demodemo
+      - NEO4J_dbms_memory_heap_initial__size=256m
+      - NEO4J_dbms_memory_heap_max__size=1G
+      - NEO4J_dbms_memory_pagecache_size=512m
+    ports:
+      - "7475:7474"  # Use different port for development to avoid conflicts
+      - "7688:7687"
+
+  pd-graphiti-service:
+    # Development settings
+    environment:
+      - LOG_LEVEL=DEBUG
+      - NEO4J_PASSWORD=demodemo
+    volumes:
+      # Add development source code mounting for live reload
+      - ../src:/app/src:ro
+    # Remove resource limits for development
+    mem_limit: null
+    mem_reservation: null
+    cpus: null
+    ports:
+      - "8002:8000"  # Use different port for development to avoid conflicts
+      - "8003:8001"

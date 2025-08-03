@@ -1,0 +1,95 @@
+# Production overrides for docker-compose.yml
+# Use this file for production deployments with enhanced security and performance
+
+version: '3.8'
+
+services:
+  neo4j:
+    # Production Neo4j configuration
+    environment:
+      # Enhanced memory settings for production
+      - NEO4J_dbms_memory_heap_initial__size=1G
+      - NEO4J_dbms_memory_heap_max__size=4G
+      - NEO4J_dbms_memory_pagecache_size=2G
+      
+      # Production security settings
+      - NEO4J_dbms_security_auth__minimum__password__length=12
+      - NEO4J_dbms_logs_security_level=INFO
+      
+      # Performance tuning
+      - NEO4J_dbms_checkpoint_interval_time=300s
+      - NEO4J_dbms_checkpoint_interval_tx=100000
+      
+      # Connection limits
+      - NEO4J_dbms_connector_bolt_thread__pool__max__size=400
+      - NEO4J_dbms_connector_bolt_thread__pool__keep__alive=5m
+    
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 6G
+        reservations:
+          cpus: '1.0'
+          memory: 3G
+    
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  pd-graphiti-service:
+    # Production application configuration
+    environment:
+      - LOG_LEVEL=INFO
+      - ENABLE_MONITORING=true
+    
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    
+    # Production health check (more frequent)
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+# Production volume configuration with backup settings
+volumes:
+  neo4j_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/pd-graphiti/data/neo4j
+  
+  pd_graphiti_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/pd-graphiti/logs
+
+networks:
+  pd-graphiti-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
