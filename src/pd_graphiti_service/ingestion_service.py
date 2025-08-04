@@ -24,7 +24,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, Callable
 from datetime import datetime
 
 from .config import Settings
@@ -35,6 +35,12 @@ from .models import (
     IngestionStatus, 
     ExportManifest
 )
+
+# Optional Dagster Pipes support
+try:
+    from dagster_pipes import PipesContext
+except ImportError:
+    PipesContext = None
 
 logger = logging.getLogger(__name__)
 
@@ -287,9 +293,12 @@ class IngestionService:
         episode_delay: float = 2.5,
         adaptive_delays: bool = True,
         min_episode_delay: float = 1.0,
-        max_episode_delay: float = 10.0
+        max_episode_delay: float = 10.0,
+        # Progress reporting support
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        pipes_context: Optional[PipesContext] = None
     ) -> Dict[str, Any]:
-        """Process complete export directory with rate limiting prevention.
+        """Process complete export directory with rate limiting prevention and real-time progress reporting.
         
         Args:
             export_dir: Path to export directory
@@ -300,12 +309,34 @@ class IngestionService:
             adaptive_delays: Enable adaptive delay adjustment based on rate limiting
             min_episode_delay: Minimum delay between episodes
             max_episode_delay: Maximum delay between episodes
+            progress_callback: Optional callback for polling-based progress updates (progress_percent, step)
+            pipes_context: Optional Dagster Pipes context for real-time progress reporting
             
         Returns:
             Dict containing processing results including rate limiting statistics
         """
         start_time = datetime.now()
         logger.info(f"Starting export directory processing: {export_dir}")
+        
+        def report_progress(processed: int, total: int, current_step: str):
+            """Report progress to both polling and Pipes contexts"""
+            progress_percent = (processed / total) * 100 if total > 0 else 0
+            
+            # Report to polling callback
+            if progress_callback:
+                progress_callback(progress_percent, current_step)
+            
+            # Report to Pipes context
+            if pipes_context:
+                pipes_context.log.info(f"Progress: {progress_percent:.1f}% - {current_step}")
+                pipes_context.report_asset_materialization(
+                    metadata={
+                        "progress_percent": progress_percent,
+                        "processed_episodes": processed,
+                        "total_episodes": total,
+                        "current_step": current_step
+                    }
+                )
         
         try:
             # Load and validate manifest
@@ -356,6 +387,10 @@ class IngestionService:
             
             # Sort episodes by processing order
             episodes = self._get_episode_processing_order(episodes)
+            total_episodes = len(episodes)
+            
+            # Initial progress report
+            report_progress(0, total_episodes, f"Starting to process {total_episodes} episodes")
             
             # Process episodes through GraphitiClient with Option B delay configuration
             ingestion_result = await self.graphiti_client.add_episodes_batch(
@@ -365,6 +400,10 @@ class IngestionService:
                 min_episode_delay=min_episode_delay,
                 max_episode_delay=max_episode_delay
             )
+            
+            # Final progress report
+            successful_episodes = len([r for r in ingestion_result.get("episode_results", []) if r.get("status") != IngestionStatus.FAILED])
+            report_progress(successful_episodes, total_episodes, f"Completed processing {successful_episodes}/{total_episodes} episodes")
             
             # Track processed episodes
             for episode in episodes:
