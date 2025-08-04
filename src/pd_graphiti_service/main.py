@@ -109,6 +109,13 @@ class BackgroundTaskManager:
             task_info = self.tasks[task_id].copy()
             # Remove the actual task object from response
             task_info.pop("task", None)
+            
+            # Convert datetime objects to ISO strings for JSON serialization
+            if "created_at" in task_info and task_info["created_at"]:
+                task_info["created_at"] = task_info["created_at"].isoformat()
+            if "completed_at" in task_info and task_info["completed_at"]:
+                task_info["completed_at"] = task_info["completed_at"].isoformat()
+            
             return task_info
     
     async def list_tasks(self) -> Dict[str, Dict[str, Any]]:
@@ -118,6 +125,13 @@ class BackgroundTaskManager:
             for task_id, task_info in self.tasks.items():
                 info = task_info.copy()
                 info.pop("task", None)  # Remove task object
+                
+                # Convert datetime objects to ISO strings for JSON serialization
+                if "created_at" in info and info["created_at"]:
+                    info["created_at"] = info["created_at"].isoformat()
+                if "completed_at" in info and info["completed_at"]:
+                    info["completed_at"] = info["completed_at"].isoformat()
+                
                 result[task_id] = info
             return result
     

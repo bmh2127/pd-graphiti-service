@@ -282,18 +282,27 @@ class IngestionService:
         export_dir: Path, 
         validate_files: bool = True,
         force_reingest: bool = False,
-        episode_types_filter: Optional[List[str]] = None
+        episode_types_filter: Optional[List[str]] = None,
+        # Option B: Rate limiting prevention
+        episode_delay: float = 2.5,
+        adaptive_delays: bool = True,
+        min_episode_delay: float = 1.0,
+        max_episode_delay: float = 10.0
     ) -> Dict[str, Any]:
-        """Process complete export directory.
+        """Process complete export directory with rate limiting prevention.
         
         Args:
             export_dir: Path to export directory
             validate_files: Whether to validate file checksums
             force_reingest: Whether to re-ingest already processed episodes
             episode_types_filter: Optional list of episode types to process
+            episode_delay: Delay in seconds between episodes (Option B)
+            adaptive_delays: Enable adaptive delay adjustment based on rate limiting
+            min_episode_delay: Minimum delay between episodes
+            max_episode_delay: Maximum delay between episodes
             
         Returns:
-            Dict containing processing results
+            Dict containing processing results including rate limiting statistics
         """
         start_time = datetime.now()
         logger.info(f"Starting export directory processing: {export_dir}")
@@ -348,8 +357,14 @@ class IngestionService:
             # Sort episodes by processing order
             episodes = self._get_episode_processing_order(episodes)
             
-            # Process episodes through GraphitiClient
-            ingestion_result = await self.graphiti_client.add_episodes_batch(episodes)
+            # Process episodes through GraphitiClient with Option B delay configuration
+            ingestion_result = await self.graphiti_client.add_episodes_batch(
+                episodes,
+                episode_delay=episode_delay,
+                adaptive_delays=adaptive_delays,
+                min_episode_delay=min_episode_delay,
+                max_episode_delay=max_episode_delay
+            )
             
             # Track processed episodes
             for episode in episodes:

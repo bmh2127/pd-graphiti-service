@@ -78,12 +78,16 @@ async def background_directory_ingestion(
             current_step="Starting directory ingestion..."
         )
         
-        # Process the export directory
+        # Process the export directory with Option B rate limiting prevention
         result = await ingestion_service.process_export_directory(
             export_dir=request.directory_path,
             validate_files=request.validate_files,
             force_reingest=request.force_reingest,
-            episode_types_filter=request.episode_types_filter
+            episode_types_filter=request.episode_types_filter,
+            episode_delay=request.episode_delay,
+            adaptive_delays=request.adaptive_delays,
+            min_episode_delay=request.min_episode_delay,
+            max_episode_delay=request.max_episode_delay
         )
         
         # Update operation as completed

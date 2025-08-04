@@ -43,14 +43,45 @@ class IngestDirectoryRequest(BaseModel):
         description="Optional list of episode types to ingest (if None, ingest all)"
     )
     
+    # Option B: Rate limiting prevention
+    episode_delay: float = Field(
+        default=2.5,
+        ge=0.0,
+        le=30.0,
+        description="Delay in seconds between processing episodes to prevent rate limiting"
+    )
+    adaptive_delays: bool = Field(
+        default=True,
+        description="Enable adaptive delay adjustment based on rate limiting detection"
+    )
+    min_episode_delay: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=10.0,
+        description="Minimum delay between episodes when using adaptive delays"
+    )
+    max_episode_delay: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=60.0,
+        description="Maximum delay between episodes when using adaptive delays"
+    )
+    
     @field_validator("directory_path")
     @classmethod
     def validate_directory_path(cls, v):
         """Validate that the directory path exists."""
         path = Path(v)
         if not path.is_absolute():
-            # Convert relative paths to absolute
-            path = Path.cwd() / path
+            # Convert relative paths to absolute using configured export directory
+            from ...config import get_settings
+            settings = get_settings()
+            # If the path starts with "exports/", resolve it relative to the parent of export_directory
+            # Otherwise, resolve it relative to export_directory itself
+            if str(path).startswith("exports/"):
+                path = settings.export_directory.parent / path
+            else:
+                path = settings.export_directory / path
         return path
 
 

@@ -342,11 +342,24 @@ class GraphitiClient:
         
         return episode_body
 
-    async def add_episodes_batch(self, episodes: List[GraphitiEpisode]) -> Dict[str, Any]:
-        """Add multiple episodes to the knowledge graph in recommended order.
+    async def add_episodes_batch(
+        self, 
+        episodes: List[GraphitiEpisode],
+        episode_delay: float = 2.5,
+        adaptive_delays: bool = True,
+        min_episode_delay: float = 1.0,
+        max_episode_delay: float = 10.0,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """Add multiple episodes to the knowledge graph in recommended order with rate limiting prevention.
         
         Args:
             episodes: List of episodes to ingest
+            episode_delay: Delay in seconds between episodes (Option B)
+            adaptive_delays: Enable adaptive delay adjustment based on rate limiting
+            min_episode_delay: Minimum delay between episodes
+            max_episode_delay: Maximum delay between episodes
+            progress_callback: Optional callback function for progress updates
             
         Returns:
             Dict containing batch ingestion results
@@ -372,17 +385,46 @@ class GraphitiClient:
         sorted_episodes = sorted(episodes, key=get_episode_priority)
         
         logger.info(f"Starting batch ingestion of {len(episodes)} episodes")
+        logger.info(f"🚀 Option B: Episode delay configured at {episode_delay}s (adaptive: {adaptive_delays})")
+        
+        # Rate limiting detection variables
+        current_delay = episode_delay
+        rate_limit_count = 0
         
         # Process episodes sequentially to maintain order
-        for episode in sorted_episodes:
+        for i, episode in enumerate(sorted_episodes):
             try:
+                # Update progress
+                progress_percentage = (i / len(sorted_episodes)) * 100
+                if progress_callback:
+                    progress_callback(progress_percentage, f"Processing episode {i+1}/{len(sorted_episodes)}: {episode.episode_name}")
+                
+                logger.info(f"Processing episode {i+1}/{len(sorted_episodes)}: {episode.episode_name} ({progress_percentage:.1f}%)")
+                
+                # Process the episode
                 result = await self.add_episode(episode)
                 results.append(result)
                 
                 if result["status"] == IngestionStatus.SUCCESS:
                     successful += 1
+                    # Reset rate limit detection on success
+                    if rate_limit_count > 0:
+                        logger.info("✅ Episode processed successfully after rate limiting")
+                        rate_limit_count = 0
+                        if adaptive_delays:
+                            current_delay = max(min_episode_delay, current_delay * 0.8)  # Reduce delay gradually
                 else:
                     failed += 1
+                    
+                    # Check if this might be a rate limiting error (OpenAI related)
+                    error_msg = result.get("error_message", "").lower()
+                    if any(indicator in error_msg for indicator in ["rate", "limit", "quota", "429"]):
+                        rate_limit_count += 1
+                        logger.warning(f"🔄 Rate limiting detected (count: {rate_limit_count}): {result.get('error_message', 'Unknown error')}")
+                        
+                        if adaptive_delays and current_delay < max_episode_delay:
+                            current_delay = min(max_episode_delay, current_delay * 1.5)  # Increase delay
+                            logger.info(f"📈 Adaptive delay increased to {current_delay:.1f}s")
                     
             except Exception as e:
                 failed += 1
@@ -394,8 +436,28 @@ class GraphitiClient:
                 }
                 results.append(error_result)
                 logger.error(f"Batch ingestion error for {episode.episode_name}: {str(e)}")
+                
+                # Check for rate limiting in exceptions too
+                if any(indicator in str(e).lower() for indicator in ["rate", "limit", "quota", "429"]):
+                    rate_limit_count += 1
+                    if adaptive_delays and current_delay < max_episode_delay:
+                        current_delay = min(max_episode_delay, current_delay * 1.5)
+            
+            # Option B: Apply delay between episodes (except after the last one)
+            if i < len(sorted_episodes) - 1:
+                delay_to_use = max(min_episode_delay, min(current_delay, max_episode_delay))
+                logger.debug(f"⏳ Applying {delay_to_use:.1f}s delay before next episode")
+                await asyncio.sleep(delay_to_use)
         
         total_time = time.time() - start_time
+        
+        # Final progress update
+        if progress_callback:
+            progress_callback(100.0, f"Completed processing {len(sorted_episodes)} episodes")
+        
+        logger.info(f"✅ Batch ingestion completed: {successful} successful, {failed} failed in {total_time:.1f}s")
+        if rate_limit_count > 0:
+            logger.info(f"📊 Rate limiting encountered {rate_limit_count} times during processing")
         
         return {
             "status": IngestionStatus.SUCCESS if failed == 0 else IngestionStatus.FAILED,
@@ -404,7 +466,15 @@ class GraphitiClient:
             "failed": failed,
             "total_processing_time_seconds": total_time,
             "episode_results": results,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            # Option B: Rate limiting statistics
+            "rate_limiting_stats": {
+                "initial_delay": episode_delay,
+                "final_delay": current_delay,
+                "adaptive_delays_enabled": adaptive_delays,
+                "rate_limit_events": rate_limit_count,
+                "total_delay_time": (len(sorted_episodes) - 1) * current_delay if len(sorted_episodes) > 1 else 0
+            }
         }
 
     async def get_graph_stats(self) -> Dict[str, Any]:
