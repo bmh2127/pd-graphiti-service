@@ -36,6 +36,12 @@ from ..graphiti_client import GraphitiClient
 from ..ingestion_service import IngestionService
 from ..file_monitor import FileMonitor
 
+# Optional Dagster Pipes support
+try:
+    from dagster_pipes import PipesContext
+except ImportError:
+    PipesContext = None
+
 router = APIRouter()
 
 # Import dependencies from main module  
@@ -65,9 +71,17 @@ _current_operations: Dict[str, CurrentOperation] = {}
 async def background_directory_ingestion(
     operation_id: str,
     request: IngestDirectoryRequest,
-    ingestion_service: IngestionService
+    ingestion_service: IngestionService,
+    pipes_context: Optional[PipesContext] = None
 ):
-    """Background task for directory ingestion."""
+    """Background task for directory ingestion with real-time progress reporting."""
+    
+    def update_operation_progress(progress_percent: float, step: str):
+        """Callback to update polling status in real-time"""
+        if operation_id in _current_operations:
+            _current_operations[operation_id].progress_percentage = progress_percent
+            _current_operations[operation_id].current_step = step
+    
     try:
         # Update operation as started
         _current_operations[operation_id] = CurrentOperation(
@@ -78,7 +92,18 @@ async def background_directory_ingestion(
             current_step="Starting directory ingestion..."
         )
         
-        # Process the export directory with Option B rate limiting prevention
+        # Log initial status for Pipes if available
+        if pipes_context:
+            pipes_context.log.info(f"Starting directory ingestion: {request.directory_path}")
+            pipes_context.report_asset_materialization(
+                metadata={
+                    "operation_id": operation_id,
+                    "directory_path": str(request.directory_path),
+                    "status": "started"
+                }
+            )
+        
+        # Process the export directory with enhanced progress reporting
         result = await ingestion_service.process_export_directory(
             export_dir=request.directory_path,
             validate_files=request.validate_files,
@@ -87,18 +112,44 @@ async def background_directory_ingestion(
             episode_delay=request.episode_delay,
             adaptive_delays=request.adaptive_delays,
             min_episode_delay=request.min_episode_delay,
-            max_episode_delay=request.max_episode_delay
+            max_episode_delay=request.max_episode_delay,
+            # NEW: Enhanced progress reporting
+            progress_callback=update_operation_progress,
+            pipes_context=pipes_context
         )
         
-        # Update operation as completed
+        # Final status update
         _current_operations[operation_id].progress_percentage = 100.0
         _current_operations[operation_id].current_step = "Directory ingestion completed"
+        
+        # Log completion for Pipes if available
+        if pipes_context:
+            pipes_context.log.info(f"Directory ingestion completed successfully")
+            pipes_context.report_asset_materialization(
+                metadata={
+                    "operation_id": operation_id,
+                    "status": "completed",
+                    "result": result
+                }
+            )
         
         return result
         
     except Exception as e:
         # Update operation as failed
         _current_operations[operation_id].current_step = f"Failed: {str(e)}"
+        
+        # Log failure for Pipes if available
+        if pipes_context:
+            pipes_context.log.error(f"Directory ingestion failed: {str(e)}")
+            pipes_context.report_asset_materialization(
+                metadata={
+                    "operation_id": operation_id,
+                    "status": "failed",
+                    "error": str(e)
+                }
+            )
+        
         raise
 
 @router.post(
