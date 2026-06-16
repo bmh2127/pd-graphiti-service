@@ -1,9 +1,17 @@
 [project]
 name = "pd-graphiti-service"
 version = "0.1.0"
-description = "Add your description here"
+description = "Production FastAPI/Docker/Kubernetes service for hosting Parkinson's Disease knowledge graphs with monitoring and structured logging"
 readme = "README.md"
+authors = [
+    {name = "Brandon Hager", email = "bmh2127@users.noreply.github.com"}
+]
+license = {text = "GPL-3.0"}
 requires-python = ">=3.12"
+
+[project.urls]
+Homepage = "https://github.com/bmh2127/pd-graphiti-service"
+Repository = "https://github.com/bmh2127/pd-graphiti-service"
 dependencies = [
     "fastapi>=0.116.1",
     "graphiti-core>=0.18.2",

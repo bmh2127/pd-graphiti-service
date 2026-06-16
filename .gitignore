@@ -3,6 +3,13 @@
 .env.local
 .env.*.local
 
+# Secrets and credentials
+*.key
+*.pem
+*credentials*.json
+.secret
+secrets/
+
 # Python
 __pycache__/
 *.py[cod]
