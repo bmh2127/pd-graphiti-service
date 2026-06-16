@@ -207,8 +207,7 @@ pip install pd-graphiti-service
 | **LOG_LEVEL** | ❌ | `INFO` | Logging level (DEBUG/INFO/WARNING/ERROR) |
 | **LOG_FORMAT** | ❌ | `json` | Log format (json/console) |
 | **ENABLE_MONITORING** | ❌ | `true` | Enable Prometheus metrics |
-| **SERVICE_PORT** | ❌ | `8000` | Application port |
-| **METRICS_PORT** | ❌ | `8001` | Metrics port |
+| **SERVICE_PORT** | ❌ | `8002` | Host-mapped application port (container uses 8000) |
 
 ### Configuration Files
 
@@ -728,9 +727,16 @@ docker logs pd-graphiti-service | jq -s 'group_by(.path) | map({path: .[0].path,
 
 ---
 
+## 🔗 Related Repositories
+
+This repository is part of a comprehensive Parkinson's Disease target discovery platform:
+
+- **[pd-target-identification](https://github.com/bmh2127/pd-target-identification)** - AI-powered Dagster pipeline for multi-omics data integration (GWAS, GTEx, CELLxGENE, PubMed, STRING) and target ranking
+- **[pd-discovery-platform](https://github.com/bmh2127/pd-discovery-platform)** - CrewAI multi-agent research layer with custom MCP servers (STRING, BioGRID, PRIDE) and differential expression analysis
+
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## 🙋 Support
 
